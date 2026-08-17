@@ -6,6 +6,7 @@ import io
 import re
 import difflib
 import html
+import json
 from datetime import datetime, date
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -20,7 +21,6 @@ from reportlab.platypus import (
     Spacer,
     Table,
     TableStyle,
-    KeepTogether,
 )
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfbase import pdfmetrics
@@ -80,10 +80,6 @@ st.markdown(
     """
     <style>
 
-    /* -------------------------------------------------------
-       GLOBAL
-    ------------------------------------------------------- */
-
     .stApp {
         background:
             radial-gradient(
@@ -110,10 +106,6 @@ st.markdown(
         max-width: 1450px;
     }
 
-    /* -------------------------------------------------------
-       HEADER
-    ------------------------------------------------------- */
-
     .islamic-header {
         position: relative;
         overflow: hidden;
@@ -121,7 +113,6 @@ st.markdown(
         border-radius: 18px;
         margin-bottom: 22px;
         color: white;
-
         background:
             linear-gradient(
                 135deg,
@@ -129,7 +120,6 @@ st.markdown(
                 #185846 48%,
                 #0f332d 100%
             );
-
         box-shadow:
             0 10px 30px rgba(15, 51, 45, 0.18);
     }
@@ -175,10 +165,6 @@ st.markdown(
         letter-spacing: 2px;
     }
 
-    /* -------------------------------------------------------
-       SIDEBAR
-    ------------------------------------------------------- */
-
     section[data-testid="stSidebar"] {
         background:
             linear-gradient(
@@ -215,10 +201,6 @@ st.markdown(
         font-weight: 700;
         color: #dfc47e;
     }
-
-    /* -------------------------------------------------------
-       CARDS
-    ------------------------------------------------------- */
 
     .dashboard-card {
         background: rgba(255,255,255,0.90);
@@ -259,10 +241,6 @@ st.markdown(
         margin-bottom: 15px;
     }
 
-    /* -------------------------------------------------------
-       METRICS
-    ------------------------------------------------------- */
-
     [data-testid="stMetric"] {
         background: rgba(255,255,255,0.94);
         border: 1px solid #dfddd2;
@@ -279,10 +257,6 @@ st.markdown(
         color: #174c3e !important;
     }
 
-    /* -------------------------------------------------------
-       BUTTONS
-    ------------------------------------------------------- */
-
     .stButton > button {
         border-radius: 9px;
         font-weight: 600;
@@ -298,18 +272,10 @@ st.markdown(
         border: 1px solid #123e34;
     }
 
-    /* -------------------------------------------------------
-       EXPANDERS
-    ------------------------------------------------------- */
-
     .streamlit-expanderHeader {
         border-radius: 10px;
         font-weight: 650;
     }
-
-    /* -------------------------------------------------------
-       TABLE
-    ------------------------------------------------------- */
 
     .product-result {
         background: white;
@@ -329,10 +295,6 @@ st.markdown(
         color: #777;
         font-size: 12px;
     }
-
-    /* -------------------------------------------------------
-       FOOTER
-    ------------------------------------------------------- */
 
     .professional-footer {
         text-align: center;
@@ -374,6 +336,7 @@ st.markdown(
 def get_connection():
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
 
@@ -419,8 +382,6 @@ def init_database():
         """
     )
 
-    conn.commit()
-
     required_columns = {
         "invoice_number": "TEXT",
         "invoice_date": "TEXT",
@@ -452,18 +413,14 @@ def init_database():
         ):
 
             try:
-
                 cursor.execute(
                     f"""
                     ALTER TABLE invoices
                     ADD COLUMN {column} {definition}
                     """
                 )
-
             except Exception:
                 pass
-
-    conn.commit()
 
     cursor.execute(
         """
@@ -486,6 +443,7 @@ def init_database():
 
             FOREIGN KEY(invoice_id)
                 REFERENCES invoices(id)
+                ON DELETE CASCADE
         )
         """
     )
@@ -510,12 +468,12 @@ def get_woocommerce_settings():
         secret = st.secrets["woocommerce"]["consumer_secret"]
 
         return (
-            url.rstrip("/"),
-            key,
-            secret
+            str(url).rstrip("/"),
+            str(key),
+            str(secret),
         )
 
-    except Exception:
+    except Exception as e:
 
         st.error(
             "WooCommerce secrets could not be loaded."
@@ -530,6 +488,7 @@ consumer_secret = "cs_YOUR_SECRET"
             """
         )
 
+        st.caption(str(e))
         st.stop()
 
 
@@ -634,7 +593,6 @@ WORD_REPLACEMENTS = {
     "fiqah": "fiqh",
     "fiqh": "fiqh",
 
-    "tafsir": "tafsir",
     "tafseer": "tafsir",
     "tafsir": "tafsir",
 
@@ -672,7 +630,6 @@ def normalize_text(text):
         return ""
 
     text = normalise_arabic(str(text))
-
     text = text.lower()
 
     text = re.sub(
@@ -795,9 +752,7 @@ def get_search_variants(search_text):
         )
 
         if replacement:
-            expanded.append(
-                replacement
-            )
+            expanded.append(replacement)
         else:
             expanded.append(word)
 
@@ -834,7 +789,6 @@ def search_products(search_text):
             if "error" in result:
 
                 if not all_products:
-
                     return result
 
                 continue
@@ -851,6 +805,7 @@ def search_products(search_text):
                 )
 
                 if product_id:
+
                     all_products[
                         product_id
                     ] = product
@@ -1000,12 +955,43 @@ def get_next_invoice_number():
 
 
 # ============================================================
-# GOOGLE DRIVE
+# GOOGLE DRIVE AUTHENTICATION
 # ============================================================
+
+def _get_secret_value(section, key):
+
+    try:
+        return st.secrets[section][key]
+    except Exception:
+        return None
+
+
+def _parse_json_secret(value):
+
+    if value is None:
+        return None
+
+    if isinstance(value, dict):
+        return value
+
+    value = str(value).strip()
+
+    if not value:
+        return None
+
+    try:
+        return json.loads(value)
+    except Exception:
+        return None
+
 
 def get_drive_service():
 
     creds = None
+
+    # --------------------------------------------------------
+    # 1. Try existing local token.json
+    # --------------------------------------------------------
 
     if os.path.exists("token.json"):
 
@@ -1020,6 +1006,58 @@ def get_drive_service():
 
             creds = None
 
+    # --------------------------------------------------------
+    # 2. Try token stored in Streamlit secrets
+    #
+    # Supported:
+    #
+    # [google_drive]
+    # token_json = "{...}"
+    #
+    # or:
+    #
+    # [google_drive]
+    # token = "{...}"
+    # --------------------------------------------------------
+
+    if creds is None:
+
+        token_secret = (
+            _get_secret_value(
+                "google_drive",
+                "token_json"
+            )
+            or
+            _get_secret_value(
+                "google_drive",
+                "token"
+            )
+        )
+
+        token_data = _parse_json_secret(
+            token_secret
+        )
+
+        if token_data:
+
+            try:
+
+                creds = Credentials.from_authorized_user_info(
+                    token_data,
+                    GOOGLE_SCOPES
+                )
+
+            except Exception as e:
+
+                st.warning(
+                    "Google Drive token in Streamlit "
+                    f"secrets could not be loaded: {e}"
+                )
+
+    # --------------------------------------------------------
+    # 3. Refresh existing credentials
+    # --------------------------------------------------------
+
     if (
         creds
         and creds.expired
@@ -1032,124 +1070,294 @@ def get_drive_service():
                 Request()
             )
 
-        except Exception:
+            # Save refreshed token locally when possible.
+            try:
+                with open(
+                    "token.json",
+                    "w",
+                    encoding="utf-8"
+                ) as token_file:
+
+                    token_file.write(
+                        creds.to_json()
+                    )
+            except Exception:
+                pass
+
+        except Exception as e:
+
+            st.warning(
+                "Google Drive token could not be refreshed: "
+                f"{e}"
+            )
 
             creds = None
 
-    if not creds or not creds.valid:
+    # --------------------------------------------------------
+    # 4. If credentials are valid, build Drive service
+    # --------------------------------------------------------
 
-        if not os.path.exists(
-            "credentials.json"
-        ):
+    if creds and creds.valid:
+
+        try:
+
+            return build(
+                "drive",
+                "v3",
+                credentials=creds,
+                cache_discovery=False
+            )
+
+        except Exception as e:
 
             st.error(
-                "credentials.json was not found."
+                "Google Drive service could not be created: "
+                f"{e}"
             )
 
             return None
 
-        flow = InstalledAppFlow.from_client_secrets_file(
-            "credentials.json",
-            GOOGLE_SCOPES
-        )
+    # --------------------------------------------------------
+    # 5. Local credentials.json OAuth flow
+    # --------------------------------------------------------
 
-        creds = flow.run_local_server(
-            port=0
-        )
+    if os.path.exists("credentials.json"):
 
-        with open(
-            "token.json",
-            "w",
-            encoding="utf-8"
-        ) as token_file:
+        try:
 
-            token_file.write(
-                creds.to_json()
+            flow = InstalledAppFlow.from_client_secrets_file(
+                "credentials.json",
+                GOOGLE_SCOPES
             )
 
-    return build(
-        "drive",
-        "v3",
-        credentials=creds
+            creds = flow.run_local_server(
+                port=0
+            )
+
+            try:
+
+                with open(
+                    "token.json",
+                    "w",
+                    encoding="utf-8"
+                ) as token_file:
+
+                    token_file.write(
+                        creds.to_json()
+                    )
+
+            except Exception:
+                pass
+
+            return build(
+                "drive",
+                "v3",
+                credentials=creds,
+                cache_discovery=False
+            )
+
+        except Exception as e:
+
+            st.error(
+                "Google Drive authentication failed: "
+                f"{e}"
+            )
+
+            return None
+
+    # --------------------------------------------------------
+    # 6. Deployment configuration
+    # --------------------------------------------------------
+
+    client_config = None
+
+    client_config_secret = (
+        _get_secret_value(
+            "google_drive",
+            "client_config"
+        )
     )
 
+    if client_config_secret:
+        client_config = _parse_json_secret(
+            client_config_secret
+        )
 
-def get_or_create_drive_folder(
-    service
-):
+    # Allow credentials_json as another common name.
+    if client_config is None:
+
+        credentials_secret = (
+            _get_secret_value(
+                "google_drive",
+                "credentials_json"
+            )
+        )
+
+        if credentials_secret:
+
+            client_config = _parse_json_secret(
+                credentials_secret
+            )
+
+    if client_config:
+
+        try:
+
+            flow = InstalledAppFlow.from_client_config(
+                client_config,
+                GOOGLE_SCOPES
+            )
+
+            st.error(
+                "Google Drive authentication is required. "
+                "The deployed app has Google client credentials "
+                "but no valid OAuth token. Authorise Google Drive "
+                "locally and store the resulting token.json in "
+                "Streamlit secrets as google_drive.token_json."
+            )
+
+            return None
+
+        except Exception as e:
+
+            st.error(
+                "Google Drive client configuration is invalid: "
+                f"{e}"
+            )
+
+            return None
+
+    # --------------------------------------------------------
+    # Nothing available
+    # --------------------------------------------------------
+
+    st.error(
+        "Google Drive credentials were not found. "
+        "For local use, place credentials.json beside app.py. "
+        "For Streamlit deployment, configure "
+        "[google_drive] token_json in Secrets."
+    )
+
+    return None
+
+
+# ============================================================
+# GOOGLE DRIVE FOLDER
+# ============================================================
+
+def get_or_create_drive_folder(service):
 
     safe_name = (
         GOOGLE_DRIVE_FOLDER_NAME
+        .replace("\\", "\\\\")
         .replace("'", "\\'")
     )
 
-    results = service.files().list(
-        q=(
-            f"name = '{safe_name}' "
-            "and mimeType = "
-            "'application/vnd.google-apps.folder' "
-            "and trashed = false"
-        ),
-        spaces="drive",
-        fields="files(id,name)",
-    ).execute()
+    try:
 
-    files = results.get(
-        "files",
-        []
-    )
+        results = service.files().list(
+            q=(
+                f"name = '{safe_name}' "
+                "and mimeType = "
+                "'application/vnd.google-apps.folder' "
+                "and trashed = false"
+            ),
+            spaces="drive",
+            fields="files(id,name)",
+            pageSize=100,
+        ).execute()
 
-    if files:
-        return files[0]["id"]
+        files = results.get(
+            "files",
+            []
+        )
 
-    metadata = {
-        "name": GOOGLE_DRIVE_FOLDER_NAME,
-        "mimeType": (
-            "application/vnd.google-apps.folder"
-        ),
-    }
+        if files:
+            return files[0]["id"]
 
-    folder = service.files().create(
-        body=metadata,
-        fields="id",
-    ).execute()
+        metadata = {
+            "name": GOOGLE_DRIVE_FOLDER_NAME,
+            "mimeType": (
+                "application/vnd.google-apps.folder"
+            ),
+        }
 
-    return folder["id"]
+        folder = service.files().create(
+            body=metadata,
+            fields="id,name",
+        ).execute()
 
+        return folder["id"]
+
+    except Exception as e:
+
+        raise RuntimeError(
+            "Could not find or create the Google Drive "
+            f"folder '{GOOGLE_DRIVE_FOLDER_NAME}': {e}"
+        )
+
+
+# ============================================================
+# GOOGLE DRIVE UPLOAD
+# ============================================================
 
 def upload_pdf_to_drive(
     pdf_bytes,
     filename
 ):
 
-    service = get_drive_service()
+    try:
 
-    if not service:
+        service = get_drive_service()
+
+        if not service:
+            return None
+
+        folder_id = get_or_create_drive_folder(
+            service
+        )
+
+        metadata = {
+            "name": filename,
+            "parents": [folder_id],
+        }
+
+        media = MediaIoBaseUpload(
+            io.BytesIO(pdf_bytes),
+            mimetype="application/pdf",
+            resumable=False,
+        )
+
+        uploaded = service.files().create(
+            body=metadata,
+            media_body=media,
+            fields="id,name",
+        ).execute()
+
+        drive_id = uploaded.get("id")
+
+        if not drive_id:
+            st.error(
+                "Google Drive returned no file ID after upload."
+            )
+            return None
+
+        return drive_id
+
+    except Exception as e:
+
+        st.error(
+            "Google Drive upload failed."
+        )
+
+        st.exception(e)
+
         return None
 
-    folder_id = get_or_create_drive_folder(
-        service
-    )
 
-    metadata = {
-        "name": filename,
-        "parents": [folder_id],
-    }
-
-    media = MediaIoBaseUpload(
-        io.BytesIO(pdf_bytes),
-        mimetype="application/pdf",
-        resumable=False,
-    )
-
-    uploaded = service.files().create(
-        body=metadata,
-        media_body=media,
-        fields="id,name",
-    ).execute()
-
-    return uploaded["id"]
-
+# ============================================================
+# GOOGLE DRIVE UPDATE
+# ============================================================
 
 def update_pdf_on_drive(
     pdf_bytes,
@@ -1288,29 +1496,12 @@ def build_invoice_pdf(
 
     styles = getSampleStyleSheet()
 
-    green = colors.HexColor(
-        "#164C3E"
-    )
-
-    dark_green = colors.HexColor(
-        "#0E332B"
-    )
-
-    gold = colors.HexColor(
-        "#C6A553"
-    )
-
-    light_gold = colors.HexColor(
-        "#F4EEDC"
-    )
-
-    pale_green = colors.HexColor(
-        "#EFF5F1"
-    )
-
-    border = colors.HexColor(
-        "#D7D7CE"
-    )
+    green = colors.HexColor("#164C3E")
+    dark_green = colors.HexColor("#0E332B")
+    gold = colors.HexColor("#C6A553")
+    light_gold = colors.HexColor("#F4EEDC")
+    pale_green = colors.HexColor("#EFF5F1")
+    border = colors.HexColor("#D7D7CE")
 
     normal_style = ParagraphStyle(
         "PDFNormal",
@@ -1318,9 +1509,7 @@ def build_invoice_pdf(
         fontName=font_name,
         fontSize=8.5,
         leading=11,
-        textColor=colors.HexColor(
-            "#333333"
-        ),
+        textColor=colors.HexColor("#333333"),
     )
 
     small_style = ParagraphStyle(
@@ -1345,9 +1534,7 @@ def build_invoice_pdf(
         fontSize=9,
         leading=11,
         alignment=TA_CENTER,
-        textColor=colors.HexColor(
-            "#E9DFC3"
-        ),
+        textColor=colors.HexColor("#E9DFC3"),
     )
 
     invoice_title_style = ParagraphStyle(
@@ -1447,13 +1634,8 @@ def build_invoice_pdf(
         )
     )
 
-    story.append(
-        header_table
-    )
-
-    story.append(
-        Spacer(1, 6 * mm)
-    )
+    story.append(header_table)
+    story.append(Spacer(1, 6 * mm))
 
     story.append(
         Paragraph(
@@ -1462,9 +1644,7 @@ def build_invoice_pdf(
         )
     )
 
-    story.append(
-        Spacer(1, 3 * mm)
-    )
+    story.append(Spacer(1, 3 * mm))
 
     # --------------------------------------------------------
     # Invoice information
@@ -1528,7 +1708,8 @@ def build_invoice_pdf(
             62 * mm,
             62 * mm,
             62 * mm,
-    ])
+        ]
+    )
 
     info_table.setStyle(
         TableStyle(
@@ -1587,65 +1768,32 @@ def build_invoice_pdf(
         )
     )
 
-    story.append(
-        info_table
-    )
-
-    story.append(
-        Spacer(1, 6 * mm)
-    )
+    story.append(info_table)
+    story.append(Spacer(1, 6 * mm))
 
     # --------------------------------------------------------
     # Items table
     # --------------------------------------------------------
 
     item_header = [
-        Paragraph(
-            "<b>#</b>",
-            center_style
-        ),
-        Paragraph(
-            "<b>Item Description</b>",
-            normal_style
-        ),
-        Paragraph(
-            "<b>Qty</b>",
-            center_style
-        ),
-        Paragraph(
-            "<b>Units</b>",
-            center_style
-        ),
-        Paragraph(
-            "<b>Unit Price</b>",
-            right_style
-        ),
-        Paragraph(
-            "<b>Discount</b>",
-            right_style
-        ),
-        Paragraph(
-            "<b>After Discount</b>",
-            right_style
-        ),
-        Paragraph(
-            "<b>Total</b>",
-            right_style
-        ),
+        Paragraph("<b>#</b>", center_style),
+        Paragraph("<b>Item Description</b>", normal_style),
+        Paragraph("<b>Qty</b>", center_style),
+        Paragraph("<b>Units</b>", center_style),
+        Paragraph("<b>Unit Price</b>", right_style),
+        Paragraph("<b>Discount</b>", right_style),
+        Paragraph("<b>After Discount</b>", right_style),
+        Paragraph("<b>Total</b>", right_style),
     ]
 
-    table_data = [
-        item_header
-    ]
+    table_data = [item_header]
 
     for item in items:
 
-        description = (
-            safe_pdf_text(
-                item.get(
-                    "item_description",
-                    ""
-                )
+        description = safe_pdf_text(
+            item.get(
+                "item_description",
+                ""
             )
         )
 
@@ -1782,13 +1930,8 @@ def build_invoice_pdf(
         )
     )
 
-    story.append(
-        items_table
-    )
-
-    story.append(
-        Spacer(1, 6 * mm)
-    )
+    story.append(items_table)
+    story.append(Spacer(1, 6 * mm))
 
     # --------------------------------------------------------
     # Totals
@@ -1796,70 +1939,49 @@ def build_invoice_pdf(
 
     totals_data = [
         [
-            Paragraph(
-                "Subtotal",
-                normal_style
-            ),
+            Paragraph("Subtotal", normal_style),
             Paragraph(
                 f"£{money(invoice['subtotal']):.2f}",
                 right_style
             ),
         ],
         [
-            Paragraph(
-                "Total Discount",
-                normal_style
-            ),
+            Paragraph("Total Discount", normal_style),
             Paragraph(
                 f"£{money(invoice['total_discount']):.2f}",
                 right_style
             ),
         ],
         [
-            Paragraph(
-                "Delivery Charges",
-                normal_style
-            ),
+            Paragraph("Delivery Charges", normal_style),
             Paragraph(
                 f"£{money(invoice['delivery_charges']):.2f}",
                 right_style
             ),
         ],
         [
-            Paragraph(
-                "<b>TOTAL</b>",
-                normal_style
-            ),
+            Paragraph("<b>TOTAL</b>", normal_style),
             Paragraph(
                 f"<b>£{money(invoice['grand_total']):.2f}</b>",
                 right_style
             ),
         ],
         [
-            Paragraph(
-                "Total Paid",
-                normal_style
-            ),
+            Paragraph("Total Paid", normal_style),
             Paragraph(
                 f"£{money(invoice['total_paid']):.2f}",
                 right_style
             ),
         ],
         [
-            Paragraph(
-                "Returned",
-                normal_style
-            ),
+            Paragraph("Returned", normal_style),
             Paragraph(
                 f"£{money(invoice['returned_amount']):.2f}",
                 right_style
             ),
         ],
         [
-            Paragraph(
-                "<b>Amount Due</b>",
-                normal_style
-            ),
+            Paragraph("<b>Amount Due</b>", normal_style),
             Paragraph(
                 f"<b>£{money(invoice['total_due']):.2f}</b>",
                 right_style
@@ -1946,13 +2068,8 @@ def build_invoice_pdf(
         )
     )
 
-    story.append(
-        totals_table
-    )
-
-    story.append(
-        Spacer(1, 6 * mm)
-    )
+    story.append(totals_table)
+    story.append(Spacer(1, 6 * mm))
 
     # --------------------------------------------------------
     # Payment
@@ -2055,13 +2172,8 @@ def build_invoice_pdf(
         )
     )
 
-    story.append(
-        payment_table
-    )
-
-    story.append(
-        Spacer(1, 6 * mm)
-    )
+    story.append(payment_table)
+    story.append(Spacer(1, 6 * mm))
 
     # --------------------------------------------------------
     # Bank details
@@ -2076,34 +2188,19 @@ def build_invoice_pdf(
             "",
         ],
         [
-            Paragraph(
-                "Bank",
-                normal_style
-            ),
-            Paragraph(
-                BANK_NAME,
-                normal_style
-            ),
+            Paragraph("Bank", normal_style),
+            Paragraph(BANK_NAME, normal_style),
         ],
         [
-            Paragraph(
-                "Account Name",
-                normal_style
-            ),
+            Paragraph("Account Name", normal_style),
             Paragraph(
                 BANK_ACCOUNT_NAME,
                 normal_style
             ),
         ],
         [
-            Paragraph(
-                "Sort Code",
-                normal_style
-            ),
-            Paragraph(
-                SORT_CODE,
-                normal_style
-            ),
+            Paragraph("Sort Code", normal_style),
+            Paragraph(SORT_CODE, normal_style),
         ],
         [
             Paragraph(
@@ -2181,9 +2278,7 @@ def build_invoice_pdf(
         )
     )
 
-    story.append(
-        bank_table
-    )
+    story.append(bank_table)
 
     # --------------------------------------------------------
     # Remarks
@@ -2191,9 +2286,7 @@ def build_invoice_pdf(
 
     if invoice.get("remarks"):
 
-        story.append(
-            Spacer(1, 5 * mm)
-        )
+        story.append(Spacer(1, 5 * mm))
 
         remarks_table = Table(
             [
@@ -2219,9 +2312,7 @@ def build_invoice_pdf(
                         "BACKGROUND",
                         (0, 0),
                         (-1, -1),
-                        colors.HexColor(
-                            "#FAF8F0"
-                        )
+                        colors.HexColor("#FAF8F0")
                     ),
                     (
                         "BOX",
@@ -2258,13 +2349,9 @@ def build_invoice_pdf(
             )
         )
 
-        story.append(
-            remarks_table
-        )
+        story.append(remarks_table)
 
-    story.append(
-        Spacer(1, 8 * mm)
-    )
+    story.append(Spacer(1, 8 * mm))
 
     story.append(
         Paragraph(
@@ -2274,16 +2361,12 @@ def build_invoice_pdf(
                 parent=normal_style,
                 alignment=TA_CENTER,
                 fontSize=8.5,
-                textColor=colors.HexColor(
-                    "#66706B"
-                ),
+                textColor=colors.HexColor("#66706B"),
             )
         )
     )
 
-    story.append(
-        Spacer(1, 2 * mm)
-    )
+    story.append(Spacer(1, 2 * mm))
 
     story.append(
         Paragraph(
@@ -2308,13 +2391,8 @@ def build_invoice_pdf(
 
         width, height = A4
 
-        canvas.setStrokeColor(
-            gold
-        )
-
-        canvas.setLineWidth(
-            0.7
-        )
+        canvas.setStrokeColor(gold)
+        canvas.setLineWidth(0.7)
 
         canvas.line(
             12 * mm,
@@ -2329,9 +2407,7 @@ def build_invoice_pdf(
         )
 
         canvas.setFillColor(
-            colors.HexColor(
-                "#777777"
-            )
+            colors.HexColor("#777777")
         )
 
         canvas.drawCentredString(
@@ -2392,8 +2468,8 @@ def save_invoice(
                 updated_at
             )
             VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?
             )
             """,
             (
@@ -2641,13 +2717,10 @@ def get_invoices(
 
     if customer_search:
 
-        normalized_customer = (
-            normalize_text(
-                customer_search
-            )
+        normalized_customer = normalize_text(
+            customer_search
         )
 
-        # Normal database search first
         query += """
             AND LOWER(
                 COALESCE(customer_name, '')
@@ -2766,33 +2839,16 @@ DEFAULT_STATE = {
     "edit_invoice_data": {},
     "pending_navigation": None,
     "manual_item_counter": 0,
-    "save_success_message": None,
 }
 
 for key, default in DEFAULT_STATE.items():
 
     if key not in st.session_state:
-
         st.session_state[key] = default
 
 
 # ============================================================
-# IMPORTANT NAVIGATION FIX
-# ============================================================
-#
-# NEVER do:
-#
-# st.session_state.navigation_page = ...
-#
-# after the radio widget has been created.
-#
-# Instead:
-#
-# 1. Buttons set pending_navigation.
-# 2. st.rerun().
-# 3. At the TOP, BEFORE radio is created,
-#    navigation_page is set.
-#
+# NAVIGATION FIX
 # ============================================================
 
 if st.session_state.pending_navigation:
@@ -2810,9 +2866,7 @@ if st.session_state.pending_navigation:
 
 if "navigation_page" not in st.session_state:
 
-    st.session_state.navigation_page = (
-        NAV_CREATE
-    )
+    st.session_state.navigation_page = NAV_CREATE
 
 
 # ============================================================
@@ -2826,19 +2880,12 @@ def request_create_invoice():
     st.session_state.edit_invoice_data = {}
     st.session_state.invoice_items = []
 
-    st.session_state.pending_navigation = (
-        NAV_CREATE
-    )
+    st.session_state.pending_navigation = NAV_CREATE
 
 
 def start_edit_invoice(
     invoice_id
 ):
-
-    # IMPORTANT:
-    # Do NOT modify navigation_page here.
-    # That is the exact cause of the previous
-    # StreamlitAPIException.
 
     st.session_state.editing_invoice_id = (
         invoice_id
@@ -2848,9 +2895,7 @@ def start_edit_invoice(
     st.session_state.edit_invoice_data = {}
     st.session_state.invoice_items = []
 
-    st.session_state.pending_navigation = (
-        NAV_CREATE
-    )
+    st.session_state.pending_navigation = NAV_CREATE
 
 
 # ============================================================
@@ -3198,7 +3243,6 @@ if page == NAV_CREATE:
         key="product_search_field",
     )
 
-    # Manual button is ALWAYS available.
     manual_col1, manual_col2 = st.columns(
         [4, 1]
     )
@@ -3391,7 +3435,6 @@ if page == NAV_CREATE:
             "No matching WooCommerce product found."
         )
 
-        # Manual button still exists above.
         st.info(
             "You can use the Manual Item Description "
             "box above to add this product manually."
@@ -3423,8 +3466,6 @@ if page == NAV_CREATE:
             "add a manual item."
         )
 
-    # We intentionally iterate over a snapshot
-    # so deleting an item does not corrupt the loop.
     for i in range(
         len(
             st.session_state.invoice_items
@@ -3727,8 +3768,7 @@ if page == NAV_CREATE:
         payment_options.index(
             existing_payment
         )
-        if existing_payment
-        in payment_options
+        if existing_payment in payment_options
         else 0
     )
 
@@ -3931,6 +3971,10 @@ if page == NAV_CREATE:
                 )
             )
 
+            # ------------------------------------------------
+            # UPDATE EXISTING DRIVE FILE
+            # ------------------------------------------------
+
             if existing_drive_id:
 
                 with st.spinner(
@@ -3958,6 +4002,10 @@ if page == NAV_CREATE:
                         "but the Google Drive PDF could "
                         "not be updated."
                     )
+
+            # ------------------------------------------------
+            # UPLOAD NEW DRIVE FILE
+            # ------------------------------------------------
 
             else:
 
@@ -3988,11 +4036,14 @@ if page == NAV_CREATE:
                 else:
 
                     st.warning(
-                        "Invoice saved, but Google Drive "
+                        "Invoice saved locally, but Google Drive "
                         "upload was unsuccessful."
                     )
 
-            # Save a local copy too.
+            # ------------------------------------------------
+            # LOCAL PDF COPY
+            # ------------------------------------------------
+
             try:
 
                 with open(
@@ -4018,13 +4069,15 @@ if page == NAV_CREATE:
                 ),
             )
 
-            # Reset invoice editor.
+            # ------------------------------------------------
+            # RESET
+            # ------------------------------------------------
+
             st.session_state.invoice_items = []
             st.session_state.editing_invoice_id = None
             st.session_state.edit_loaded = False
             st.session_state.edit_invoice_data = {}
 
-            # Navigate safely.
             st.session_state.pending_navigation = (
                 NAV_INVOICES
             )
@@ -4107,10 +4160,6 @@ elif page == NAV_INVOICES:
             key="invoice_date_to",
         )
 
-    # --------------------------------------------------------
-    # Search database
-    # --------------------------------------------------------
-
     rows = get_invoices(
         customer_search=customer_search,
         invoice_search=invoice_search,
@@ -4157,40 +4206,22 @@ elif page == NAV_INVOICES:
 
             with c1:
 
-                st.caption(
-                    "Customer"
-                )
-
-                st.write(
-                    customer_display
-                )
+                st.caption("Customer")
+                st.write(customer_display)
 
             with c2:
 
-                st.caption(
-                    "Added By"
-                )
-
-                st.write(
-                    row["created_by"]
-                )
+                st.caption("Added By")
+                st.write(row["created_by"])
 
             with c3:
 
-                st.caption(
-                    "Payment"
-                )
-
-                st.write(
-                    row["payment_method"]
-                )
+                st.caption("Payment")
+                st.write(row["payment_method"])
 
             with c4:
 
-                st.caption(
-                    "Amount Due"
-                )
-
+                st.caption("Amount Due")
                 st.write(
                     f"£{money(row['total_due']):.2f}"
                 )
@@ -4209,9 +4240,6 @@ elif page == NAV_INVOICES:
                     use_container_width=True,
                 ):
 
-                    # This calls the safe function.
-                    # It does NOT modify the radio's
-                    # state after the widget is created.
                     start_edit_invoice(
                         row["id"]
                     )
@@ -4306,7 +4334,6 @@ elif page == NAV_EXCEL:
         workbook = openpyxl.Workbook()
 
         sheet = workbook.active
-
         sheet.title = "Invoices"
 
         headers = [
@@ -4329,9 +4356,7 @@ elif page == NAV_EXCEL:
             "Google Drive Name",
         ]
 
-        sheet.append(
-            headers
-        )
+        sheet.append(headers)
 
         for row in rows:
 

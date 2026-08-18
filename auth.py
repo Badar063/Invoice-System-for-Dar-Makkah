@@ -109,10 +109,11 @@ password = "your_password_here"
 
 def logout_button():
 
-    if st.button(
-        "🚪 Logout",
-        use_container_width=True,
-    ):
+   if st.button(
+    "🚪 Logout",
+    use_container_width=True,
+    type="primary",
+):
 
         st.session_state.authenticated = False
         st.rerun()

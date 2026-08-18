@@ -1689,7 +1689,7 @@ def build_invoice_pdf(
         ],
         [
             Paragraph(
-                "Professional Sales Invoice",
+                "Sales Invoice",
                 subtitle_style
             )
         ],

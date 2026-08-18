@@ -109,10 +109,32 @@ password = "your_password_here"
 
 def logout_button():
 
-   if st.button(
-    "🚪 Logout",
-    use_container_width=True,
-    type="primary",
+    st.markdown(
+        """
+        <style>
+        section[data-testid="stSidebar"] .stButton > button {
+            background:
+                linear-gradient(
+                    135deg,
+                    #185b49,
+                    #123e34
+                ) !important;
+            color: #ffffff !important;
+            border: 1px solid #123e34 !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    if st.button(
+        "🚪 Logout",
+        use_container_width=True,
+        type="primary",
+    ):
+
+        st.session_state.authenticated = False
+        st.rerun()
 ):
 
         st.session_state.authenticated = False

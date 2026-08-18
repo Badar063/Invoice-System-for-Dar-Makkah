@@ -67,7 +67,7 @@ NAV_EXCEL = "Excel Export"
 # ============================================================
 
 st.set_page_config(
-    check_login()
+    check_login(),
     page_title=APP_TITLE,
     page_icon="🕌",
     layout="wide",

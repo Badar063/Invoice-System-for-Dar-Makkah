@@ -1965,76 +1965,88 @@ def build_invoice_pdf(
         repeatRows=1,
     )
 
-    items_table.setStyle(
-        TableStyle(
-            [
-                (
-                    "BACKGROUND",
-                    (0, 0),
-                    (-1, 0),
-                    green
-                ),
-                (
-                    "TEXTCOLOR",
-                    (0, 0),
-                    (-1, 0),
-                    colors.white
-                ),
-                (
-                    "FONTNAME",
-                    (0, 0),
-                    (-1, -1),
-                    font_name
-                ),
-                (
-                    "GRID",
-                    (0, 0),
-                    (-1, -1),
-                    0.35,
-                    border
-                ),
-                (
-                    "VALIGN",
-                    (0, 0),
-                    (-1, -1),
-                    "MIDDLE"
-                ),
-                (
-                    "ROWBACKGROUNDS",
-                    (0, 1),
-                    (-1, -1),
-                    [
-                        colors.white,
-                        pale_green,
-                    ]
-                ),
-                (
-                    "TOPPADDING",
-                    (0, 0),
-                    (-1, -1),
-                    6
-                ),
-                (
-                    "BOTTOMPADDING",
-                    (0, 0),
-                    (-1, -1),
-                    6
-                ),
-                (
-                    "LEFTPADDING",
-                    (0, 0),
-                    (-1, -1),
-                    4
-                ),
-                (
-                    "RIGHTPADDING",
-                    (0, 0),
-                    (-1, -1),
-                    4
-                ),
-            ]
-        )
+ items_table.setStyle(
+    TableStyle(
+        [
+            # Header - white background, black text
+            (
+                "BACKGROUND",
+                (0, 0),
+                (-1, 0),
+                colors.white
+            ),
+            (
+                "TEXTCOLOR",
+                (0, 0),
+                (-1, 0),
+                colors.black
+            ),
+
+            # Black/grey borders
+            (
+                "GRID",
+                (0, 0),
+                (-1, -1),
+                0.5,
+                colors.black
+            ),
+
+            (
+                "VALIGN",
+                (0, 0),
+                (-1, -1),
+                "MIDDLE"
+            ),
+
+            # All rows white
+            (
+                "BACKGROUND",
+                (0, 1),
+                (-1, -1),
+                colors.white
+            ),
+
+            (
+                "TEXTCOLOR",
+                (0, 1),
+                (-1, -1),
+                colors.black
+            ),
+
+            (
+                "FONTNAME",
+                (0, 0),
+                (-1, -1),
+                font_name
+            ),
+
+            (
+                "TOPPADDING",
+                (0, 0),
+                (-1, -1),
+                6
+            ),
+            (
+                "BOTTOMPADDING",
+                (0, 0),
+                (-1, -1),
+                6
+            ),
+            (
+                "LEFTPADDING",
+                (0, 0),
+                (-1, -1),
+                4
+            ),
+            (
+                "RIGHTPADDING",
+                (0, 0),
+                (-1, -1),
+                4
+            ),
+        ]
     )
+)
 
     story.append(items_table)
     story.append(Spacer(1, 6 * mm))

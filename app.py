@@ -1,3 +1,4 @@
+from auth import check_login, logout_button
 import streamlit as st
 import sqlite3
 import requests
@@ -66,6 +67,7 @@ NAV_EXCEL = "Excel Export"
 # ============================================================
 
 st.set_page_config(
+    check_login()
     page_title=APP_TITLE,
     page_icon="🕌",
     layout="wide",
@@ -3113,6 +3115,8 @@ def add_manual_item(
 # ============================================================
 
 with st.sidebar:
+    st.divider()
+logout_button()
 
     st.markdown(
         """

@@ -135,7 +135,3 @@ def logout_button():
 
         st.session_state.authenticated = False
         st.rerun()
-):
-
-        st.session_state.authenticated = False
-        st.rerun()

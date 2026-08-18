@@ -1965,7 +1965,7 @@ def build_invoice_pdf(
         repeatRows=1,
     )
 
- items_table.setStyle(
+items_table.setStyle(
     TableStyle(
         [
             # Header - white background, black text

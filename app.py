@@ -3117,8 +3117,7 @@ def add_manual_item(
 with st.sidebar:
     st.divider()
 logout_button()
-
-    st.markdown(
+st.markdown(
         """
         <div class="sidebar-brand">
             <div class="sidebar-icon">🕌</div>

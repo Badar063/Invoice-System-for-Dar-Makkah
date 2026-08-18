@@ -3132,9 +3132,8 @@ st.markdown(
         unsafe_allow_html=True
     )
 
-    st.divider()
-
-    page = st.radio(
+st.divider()
+page = st.radio(
         "Navigation",
         [
             NAV_CREATE,
@@ -3144,13 +3143,13 @@ st.markdown(
         key="navigation_page",
     )
 
-    st.divider()
+st.divider()
 
-    st.caption(
+st.caption(
         "WooCommerce products are searched live."
     )
 
-    st.caption(
+st.caption(
         "The complete product catalogue is not "
         "downloaded when the application starts."
     )

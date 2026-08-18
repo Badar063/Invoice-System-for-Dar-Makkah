@@ -3116,9 +3116,8 @@ def add_manual_item(
 # ============================================================
 
 with st.sidebar:
-    st.divider()
-logout_button()
-st.markdown(
+
+    st.markdown(
         """
         <div class="sidebar-brand">
             <div class="sidebar-icon">🕌</div>
@@ -3133,8 +3132,9 @@ st.markdown(
         unsafe_allow_html=True
     )
 
-st.divider()
-page = st.radio(
+    st.divider()
+
+    page = st.radio(
         "Navigation",
         [
             NAV_CREATE,
@@ -3144,17 +3144,20 @@ page = st.radio(
         key="navigation_page",
     )
 
-st.divider()
+    st.divider()
 
-st.caption(
+    st.caption(
         "WooCommerce products are searched live."
     )
 
-st.caption(
+    st.caption(
         "The complete product catalogue is not "
         "downloaded when the application starts."
     )
 
+    st.divider()
+
+    logout_button()
 
 # ============================================================
 # CREATE / EDIT INVOICE

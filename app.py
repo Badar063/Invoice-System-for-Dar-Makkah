@@ -21,6 +21,7 @@ from reportlab.platypus import (
     Spacer,
     Table,
     TableStyle,
+    Image as RLImage,
 )
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfbase import pdfmetrics
@@ -432,6 +433,7 @@ def init_database():
             product_id TEXT,
             sku TEXT,
             item_description TEXT,
+            image_url TEXT,
 
             quantity REAL DEFAULT 1,
             units TEXT,
@@ -447,6 +449,22 @@ def init_database():
         )
         """
     )
+
+    if not column_exists(
+        cursor,
+        "invoice_items",
+        "image_url"
+    ):
+
+        try:
+            cursor.execute(
+                """
+                ALTER TABLE invoice_items
+                ADD COLUMN image_url TEXT
+                """
+            )
+        except Exception:
+            pass
 
     conn.commit()
     conn.close()
@@ -1468,6 +1486,83 @@ def pdf_markup_paragraph(
     )
 
 
+@st.cache_data(
+    ttl=3600,
+    show_spinner=False
+)
+def fetch_image_bytes(url):
+
+    if not url:
+        return None
+
+    try:
+
+        response = requests.get(
+            url,
+            timeout=10
+        )
+
+        if response.status_code == 200:
+            return response.content
+
+    except Exception:
+        pass
+
+    return None
+
+
+def pdf_item_image(
+    url,
+    size=12 * mm
+):
+
+    if not url:
+        return Paragraph(
+            "",
+            ParagraphStyle(
+                "PDFEmptyImage",
+                fontSize=7.2
+            )
+        )
+
+    image_bytes = fetch_image_bytes(
+        url
+    )
+
+    if not image_bytes:
+        return Paragraph(
+            "",
+            ParagraphStyle(
+                "PDFEmptyImage",
+                fontSize=7.2
+            )
+        )
+
+    try:
+
+        image = RLImage(
+            io.BytesIO(
+                image_bytes
+            ),
+            width=size,
+            height=size
+        )
+
+        image.hAlign = "CENTER"
+
+        return image
+
+    except Exception:
+
+        return Paragraph(
+            "",
+            ParagraphStyle(
+                "PDFEmptyImage",
+                fontSize=7.2
+            )
+        )
+
+
 # ============================================================
 # PROFESSIONAL PDF
 # ============================================================
@@ -1777,6 +1872,7 @@ def build_invoice_pdf(
 
     item_header = [
         Paragraph("<b>#</b>", center_style),
+        Paragraph("<b>Image</b>", center_style),
         Paragraph("<b>Item Description</b>", normal_style),
         Paragraph("<b>Qty</b>", center_style),
         Paragraph("<b>Units</b>", center_style),
@@ -1807,6 +1903,12 @@ def build_invoice_pdf(
                         )
                     ),
                     center_style
+                ),
+                pdf_item_image(
+                    item.get(
+                        "image_url",
+                        ""
+                    )
                 ),
                 Paragraph(
                     description,
@@ -1848,7 +1950,8 @@ def build_invoice_pdf(
         table_data,
         colWidths=[
             8 * mm,
-            60 * mm,
+            14 * mm,
+            46 * mm,
             12 * mm,
             15 * mm,
             22 * mm,
@@ -2556,6 +2659,7 @@ def save_invoice(
                 product_id,
                 sku,
                 item_description,
+                image_url,
                 quantity,
                 units,
                 unit_price,
@@ -2565,7 +2669,7 @@ def save_invoice(
                 total_price
             )
             VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
             """,
             (
@@ -2574,6 +2678,7 @@ def save_invoice(
                 item.get("product_id", ""),
                 item.get("sku", ""),
                 item.get("item_description", ""),
+                item.get("image_url", ""),
                 money(item.get("quantity", 1)),
                 item.get("units", "pcs"),
                 money(item.get("unit_price", 0)),
@@ -2920,6 +3025,20 @@ def add_product_to_invoice(
         regular_price
     )
 
+    images = product.get(
+        "images",
+        []
+    )
+
+    image_url = (
+        images[0].get(
+            "src",
+            ""
+        )
+        if images
+        else ""
+    )
+
     item = {
         "serial_number": (
             len(
@@ -2940,6 +3059,7 @@ def add_product_to_invoice(
             "name",
             ""
         ),
+        "image_url": image_url,
         "quantity": 1.0,
         "units": "pcs",
         "unit_price": regular_price,
@@ -2976,6 +3096,7 @@ def add_manual_item(
             "product_id": "",
             "sku": "",
             "item_description": description,
+            "image_url": "",
             "quantity": 1.0,
             "units": "pcs",
             "unit_price": 0.0,
@@ -3357,11 +3478,40 @@ if page == NAV_CREATE:
                 name
             )
 
-            col1, col2, col3, col4 = (
+            product_images = product.get(
+                "images",
+                []
+            )
+
+            product_image_url = (
+                product_images[0].get(
+                    "src",
+                    ""
+                )
+                if product_images
+                else ""
+            )
+
+            image_col, col1, col2, col3, col4 = (
                 st.columns(
-                    [5.2, 1.3, 1.3, 1]
+                    [0.9, 4.3, 1.3, 1.3, 1]
                 )
             )
+
+            with image_col:
+
+                if product_image_url:
+
+                    st.image(
+                        product_image_url,
+                        width=55
+                    )
+
+                else:
+
+                    st.caption(
+                        "No image"
+                    )
 
             with col1:
 
@@ -3481,6 +3631,13 @@ if page == NAV_CREATE:
         st.markdown(
             f"**Item {i + 1}**"
         )
+
+        if item.get("image_url"):
+
+            st.image(
+                item["image_url"],
+                width=70
+            )
 
         c1, c2, c3 = st.columns(
             [6, 1.5, 0.7]
